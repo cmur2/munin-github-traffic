@@ -1,0 +1,65 @@
+#!/usr/bin/env ruby
+
+# Source: https://github.com/cmur2/munin-github-traffic
+
+#
+# Example usage:
+#  Do
+#    ln -s /path/to/github-traffic_ github-traffic_<user:::project>
+#  where <user:::project> encodes the user and project to monitor.
+#  They should be delimited by a triple colon ::: in order to be
+#  parsed correctly. Additionally this script needs (in this first
+#  naive version) your user_session cookie from your browser that
+#  is logged in into GitHub in order to retrieve that information.
+#
+# Example config:
+#  [github-traffic_*]
+#  env.user_session blahblubmanycharacters
+#
+
+require 'rubygems'
+require 'json'
+
+require 'open-uri'
+
+script = File.basename($0)
+@user_project_enc = script.gsub('github-traffic_', '')
+@user_project = @user_project_enc.gsub(':::','/')
+@cmd = ARGV[0]
+@user_session = ENV['user_session']
+
+# open stderr
+$stderr = IO.new(2, "w")
+
+def uri(user_project)
+	"https://github.com/#{user_project}/graphs/traffic-data" # HTTPS
+end
+
+def echo_stats(user_project, data)
+	case @cmd
+	when 'config'
+		puts "graph_title GitHub Traffic for #{user_project}"
+		puts "graph_args --lower-limit 0"
+		puts "graph_vlabel #"
+		puts "graph_category github"
+		puts "graph_scale no"
+		puts "graph_info This graph shows the GitHub traffic for #{user_project}"
+		%w{total unique}.each do |x|
+			puts "#{x}.label #{x}"
+			puts "#{x}.type GAUGE"
+		end
+	else
+		newest_bucket = data['counts'].sort_by { |bucket| bucket['bucket'] }.last
+		%w{total unique}.each do |x|
+			puts "#{x}.value #{newest_bucket[x]}"
+		end
+	end
+end
+
+begin
+	raw_data = open(uri(@user_project), "Cookie" => "user_session=#{@user_session};").read
+	data = JSON.parse(raw_data)
+	echo_stats(@user_project, data)
+rescue => ex
+	$stderr.puts "Cannot connect to github.com: #{ex.to_s}"
+end
